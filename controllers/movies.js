@@ -4,10 +4,17 @@ const router = express.Router();
 const Movie = require("../models/movie");
 
 const verifyToken = require("../middleware/verify-token");
+const authenticateOptional = require("../middleware/authenticate-optional");
 
-router.get("/", async (req, res) => {
+router.get("/", authenticateOptional, async (req, res) => {
     try {
-        const movieDocs = await Movie.find({}).populate("user", "username");
+        let movieDocs = [];
+
+        if (!req.user) {
+            movieDocs = await Movie.find({}).populate("user", "username");
+        } else {
+            movieDocs = await Movie.find({ user: req.user._id });
+        }
 
         res.status(200).json(movieDocs);
     } catch (err) {
@@ -100,6 +107,31 @@ router.post("/:movieId/comments", verifyToken, async (req, res) => {
     }
 });
 
+router.get("/:movieId/comments/:commentId", verifyToken, async (req, res) => {
+    try {
+        const movieDoc = await Movie.findById(req.params.movieId);
+
+        if (!movieDoc) {
+            return res.status(404).json({ err: "Movie not found." });
+        }
+
+        const foundComment = movieDoc.comments.id(req.params.commentId);
+
+        if (!foundComment) {
+            return res.status(404).json({ err: "Comment not found." });
+        }
+
+        if (foundComment.author_id.toString() !== req.user._id) {
+            return res.status(403).json({ message: "You are not authorized to edit this comment." });
+        }
+
+        res.status(200).json(foundComment);
+
+    } catch (err) {
+        res.status(500).json({ err: err.message });
+    }
+});
+
 router.put("/:movieId/comments/:commentId", verifyToken, async (req, res) => {
     try {
         const movieDoc = await Movie.findById(req.params.movieId);
@@ -110,6 +142,10 @@ router.put("/:movieId/comments/:commentId", verifyToken, async (req, res) => {
 
         const foundComment = movieDoc.comments.id(req.params.commentId);
 
+        if (!foundComment) {
+            return res.status(404).json({ err: "Comment not found." });
+        }
+
         if (foundComment.author_id.toString() !== req.user._id) {
             return res.status(403).json({ message: "You are not authorized to edit this comment." });
         }
@@ -118,7 +154,7 @@ router.put("/:movieId/comments/:commentId", verifyToken, async (req, res) => {
 
         await movieDoc.save();
 
-        const updatedMovie = await Movie.findById(req.params.movieId).populate("comments.author_id", "username");
+        const updatedMovie = await Movie.findById(req.params.movieId);
 
         res.status(200).json(updatedMovie);
     } catch (err) {
@@ -135,6 +171,10 @@ router.delete("/:movieId/comments/:commentId", verifyToken, async (req, res) => 
         }
 
         const commentToDelete = movieDoc.comments.id(req.params.commentId);
+
+        if (!commentToDelete) {
+            return res.status(404).json({ err: "Comment not found." });
+        }
 
         if (commentToDelete.author_id.toString() !== req.user._id) {
             return res.status(403).json({ message: "You are not authorized to delete this comment." });
