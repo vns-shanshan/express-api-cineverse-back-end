@@ -6,14 +6,28 @@ const Movie = require("../models/movie");
 const verifyToken = require("../middleware/verify-token");
 const authenticateOptional = require("../middleware/authenticate-optional");
 
+const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+const s3client = new S3Client({
+    region: "us-west-1"
+});
+const { v4: uuidv } = require("uuid");
+
+const multer = require("multer");
+const upload = multer();
+
 router.get("/", authenticateOptional, async (req, res) => {
     try {
         let movieDocs = [];
 
         if (!req.user) {
-            movieDocs = await Movie.find({}).populate("user", "username");
+            movieDocs = await Movie
+                .find({})
+                .populate("user", "username")
+                .sort({ _id: -1 });
         } else {
-            movieDocs = await Movie.find({ user: req.user._id });
+            movieDocs = await Movie
+                .find({ user: req.user._id }).sort({ _id: -1 });
+
         }
 
         res.status(200).json(movieDocs);
@@ -22,24 +36,50 @@ router.get("/", authenticateOptional, async (req, res) => {
     }
 });
 
-router.post("/", verifyToken, async (req, res) => {
-    try {
-        req.body.user = req.user._id;
-        const createdMovie = await Movie.create(req.body);
+router.post("/", verifyToken, upload.single('photo'), async (req, res) => {
 
-        res.status(201).json(createdMovie);
+
+    try {
+        const filePath = `movie/${uuidv()}-${req.file.originalname}`;
+
+        const command = new PutObjectCommand({
+            Bucket: process.env.BUCKET,
+            Key: filePath,
+            Body: req.file.buffer
+        });
+
+        const response = await s3client.send(command);
+        console.log("Upload Success", response);
+
+        try {
+            req.body.photo = `https://${process.env.BUCKET}.s3.us-west-1.amazonaws.com/${filePath}`
+
+            req.body.user = req.user._id;
+
+            const createdMovie = await Movie.create(req.body);
+
+
+            res.status(201).json(createdMovie);
+        } catch (err) {
+            res.status(500).json({ err: err.message });
+        }
     } catch (err) {
+        console.log(err, "<- aws error keys are probably wrong, check credentials.");
         res.status(500).json({ err: err.message });
     }
+
+
 });
 
 router.get("/:movieId", async (req, res) => {
     try {
-        const selectedMovie = await Movie.findById(req.params.movieId).populate("user", "username").populate("comments.author_id", "username");
+        const selectedMovie = await Movie.findById(req.params.movieId).populate("user", "username").populate("comments.author_id", "username").lean();
 
         if (!selectedMovie) {
             return res.status(404).json({ err: "Movie not found" });
         }
+
+        selectedMovie.comments.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 
         res.status(200).json(selectedMovie);
     } catch (err) {
@@ -67,6 +107,7 @@ router.put("/:movieId", verifyToken, async (req, res) => {
 });
 
 router.delete("/:movieId", verifyToken, async (req, res) => {
+    console.log(req.params.movieId)
     try {
         const userMovieDoc = await Movie.findById(req.params.movieId);
 
@@ -95,11 +136,14 @@ router.post("/:movieId/comments", verifyToken, async (req, res) => {
             commentDetails: req.body.commentDetails
         }
 
+        // console.log(newComment)
+
         movieDoc.comments.push(newComment);
 
         await movieDoc.save();
 
-        const updatedMovie = await Movie.findById(req.params.movieId).populate("comments.author_id", "username");
+        const updatedMovie = await Movie.findById(req.params.movieId)
+            .populate("comments.author_id", "username")
 
         res.status(201).json(updatedMovie)
     } catch (err) {
