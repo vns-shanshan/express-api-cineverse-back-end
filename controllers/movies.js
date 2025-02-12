@@ -87,12 +87,32 @@ router.get("/:movieId", async (req, res) => {
     }
 });
 
-router.put("/:movieId", verifyToken, async (req, res) => {
+router.put("/:movieId", verifyToken, upload.single('photo'), async (req, res) => {
     try {
         const userMovieDoc = await Movie.findOne({ user: req.user._id, _id: req.params.movieId });
 
         if (!userMovieDoc) {
+
             res.status(403).json({ message: "You are not allowed to update this movie." });
+        }
+
+        if (!!req.file) {
+            // buffer exists, new photo submitted
+            // upload to aws and get the new url back
+            const filePath = `movie/${uuidv()}-${req.file.originalname}`;
+
+            const command = new PutObjectCommand({
+                Bucket: process.env.BUCKET,
+                Key: filePath,
+                Body: req.file.buffer
+            });
+
+            const response = await s3client.send(command);
+            // console.log(response)
+            req.body.photo = `https://${process.env.BUCKET}.s3.us-west-1.amazonaws.com/${filePath}`
+        } else {
+            // photo is not changed. reg.body.photo is a URL
+            // do nothing
         }
 
         const updatedMovie = await Movie.findByIdAndUpdate(req.params.movieId, req.body, { new: true });
