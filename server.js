@@ -6,6 +6,8 @@ const app = express();
 const mongoose = require('mongoose');
 const cors = require('cors');
 const logger = require('morgan');
+const PORT = process.env.PORT ? process.env.PORT : 3000
+
 
 // Import routers
 const authRouter = require('./controllers/auth');
@@ -32,6 +34,6 @@ app.use('/users', usersRouter);
 app.use("/movies", moviesRouter);
 
 // Start the server and listen on port 3000
-app.listen(3000, () => {
+app.listen(PORT, () => {
   console.log('The express app is ready!');
 });
