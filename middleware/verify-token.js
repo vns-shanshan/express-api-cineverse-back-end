@@ -9,7 +9,8 @@ function verifyToken(req, res, next) {
 
     next();
   } catch (err) {
-    res.status(401).json({ err: 'Invalid token.' });
+    console.log("Invalid or expired token, proceeding without authentication");
+    return res.status(401).json({ err: "Token expired" });
   }
 }
 
