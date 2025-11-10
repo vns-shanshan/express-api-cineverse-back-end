@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 
 const Movie = require("../models/movie");
+const User = require("../models/user");
+const cloudinary = require('cloudinary').v2;
 
 const verifyToken = require("../middleware/verify-token");
 const authenticateOptional = require("../middleware/authenticate-optional");
@@ -12,8 +14,7 @@ const s3client = new S3Client({
 });
 const { v4: uuidv } = require("uuid");
 
-const multer = require("multer");
-const upload = multer();
+const upload = require("../middleware/upload");
 
 router.get("/", authenticateOptional, async (req, res) => {
     try {
@@ -36,35 +37,36 @@ router.get("/", authenticateOptional, async (req, res) => {
     }
 });
 
-router.post("/", verifyToken, upload.single('photo'), async (req, res) => {
+// photo is the name of the form field that contains the uploaded file
+router.post("/", verifyToken, upload.single("photo"), async (req, res) => {
 
 
     try {
-        const filePath = `movie/${uuidv()}-${req.file.originalname}`;
 
-        const command = new PutObjectCommand({
-            Bucket: process.env.BUCKET,
-            Key: filePath,
-            Body: req.file.buffer
-        });
+        const userId = req.user._id.toString();
 
-        const response = await s3client.send(command);
-        console.log("Upload Success", response);
+        const user = await User.findById(userId);
 
-        try {
-            req.body.photo = `https://${process.env.BUCKET}.s3.us-west-1.amazonaws.com/${filePath}`
-
-            req.body.user = req.user._id;
-
-            const createdMovie = await Movie.create(req.body);
-
-
-            res.status(201).json(createdMovie);
-        } catch (err) {
-            res.status(500).json({ err: err.message });
+        if (!user) {
+            return res.status(404).json({ err: "User not found" });
         }
+
+        if (req.file) {
+            const uploadedResponse = await cloudinary.uploader.upload(req.file.path);
+            photo = uploadedResponse.secure_url;
+        }
+
+        const newMovie = new Movie({
+            ...req.body,
+            user: userId,
+            photo
+        })
+
+        await newMovie.save();
+
+        res.status(201).json(newMovie);
     } catch (err) {
-        console.log(err, "<- aws error keys are probably wrong, check credentials.");
+        console.log(err);
         res.status(500).json({ err: err.message });
     }
 
@@ -93,31 +95,22 @@ router.put("/:movieId", verifyToken, upload.single('photo'), async (req, res) =>
 
         if (!userMovieDoc) {
 
-            res.status(403).json({ message: "You are not allowed to update this movie." });
+            return res.status(403).json({ message: "You are not allowed to update this movie." });
         }
 
-        if (!!req.file) {
-            // buffer exists, new photo submitted
-            // upload to aws and get the new url back
-            const filePath = `movie/${uuidv()}-${req.file.originalname}`;
+        let photoUrl = userMovieDoc.photo;
 
-            const command = new PutObjectCommand({
-                Bucket: process.env.BUCKET,
-                Key: filePath,
-                Body: req.file.buffer
-            });
-
-            const response = await s3client.send(command);
-            // console.log(response)
-            req.body.photo = `https://${process.env.BUCKET}.s3.us-west-1.amazonaws.com/${filePath}`
-        } else {
-            // photo is not changed. reg.body.photo is a URL
-            // do nothing
+        if (req.file) {
+            const uploadedResponse = await cloudinary.uploader.upload(req.file.path);
+            photoUrl = uploadedResponse.secure_url;
         }
 
-        const updatedMovie = await Movie.findByIdAndUpdate(req.params.movieId, req.body, { new: true });
+        const updatedFields = {
+            ...req.body,
+            photo: photoUrl
+        }
 
-        updatedMovie._doc.user = req.user;
+        const updatedMovie = await Movie.findByIdAndUpdate(req.params.movieId, updatedFields, { new: true }).populate("user", "username");;
 
         res.status(200).json(updatedMovie);
 

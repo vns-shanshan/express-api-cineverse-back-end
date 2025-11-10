@@ -15,7 +15,7 @@ const authenticateOptional = async (req, res, next) => {
     try {
 
         const decoded = jwt.verify(token, secretKey);
-        req.user = decoded.payload;
+        req.user = decoded;
     } catch (error) {
         // If token is invalid, ignore it and proceed without user
         console.log("Invalid or expired token, proceeding without authentication");
