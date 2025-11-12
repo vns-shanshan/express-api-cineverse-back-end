@@ -16,23 +16,27 @@ const { v4: uuidv } = require("uuid");
 
 const upload = require("../middleware/upload");
 
-router.get("/", authenticateOptional, async (req, res) => {
+router.get("/", async (req, res) => {
     try {
-        let movieDocs = [];
-
-        if (!req.user) {
-            movieDocs = await Movie
-                .find({})
-                .populate("user", "username")
-                .sort({ _id: -1 });
-        } else {
-            movieDocs = await Movie
-                .find({ user: req.user._id }).sort({ _id: -1 });
-
-        }
+        const movieDocs = await Movie
+            .find({})
+            .populate("user", "username")
+            .sort({ _id: -1 });
 
         res.status(200).json(movieDocs);
     } catch (err) {
+        res.status(500).json({ err: err.message });
+    }
+});
+
+router.get("/my-movies", verifyToken, async (req, res) => {
+    try {
+        const userId = req.user._id.toString();
+
+        const myMovies = await Movie.find({ user: userId }).sort({ _id: -1 });
+
+        res.status(200).json(myMovies);
+    } catch (error) {
         res.status(500).json({ err: err.message });
     }
 });
