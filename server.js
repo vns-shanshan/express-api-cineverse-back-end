@@ -15,12 +15,12 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-if (process.env.NODE_ENV !== 'production') {
-  app.use(cors({
-    origin: "http://localhost:5173",
-    credentials: true,
-  }));
-}
+app.use(cors({
+  origin: process.env.CORS_ORIGIN,
+  credentials: true,
+}));
+
+
 
 // Import routers
 const authRouter = require('./controllers/auth');
